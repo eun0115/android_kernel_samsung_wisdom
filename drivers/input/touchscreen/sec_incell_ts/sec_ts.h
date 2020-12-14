@@ -671,7 +671,8 @@ struct sec_ts_data {
 	/*bool fb_ready;*/
 #endif
 
-	struct pm_qos_request pm_qos_req;
+	struct pm_qos_request pm_i2c_req;
+	struct pm_qos_request pm_touch_req;
 	struct delayed_work work_read_info;
 	struct delayed_work work_read_functions;
 	struct completion resume_done;
