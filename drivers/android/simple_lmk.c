@@ -36,25 +36,8 @@ struct victim_info {
 	unsigned long size;
 };
 
-/* Pulled from the Android framework. Lower adj means higher priority. */
-static const unsigned short adjs[] = {
-	SHRT_MAX + 1, /* Include all positive adjs in the final range */
-	950, /* CACHED_APP_LMK_FIRST_ADJ */
-	900, /* CACHED_APP_MIN_ADJ */
-	800, /* SERVICE_B_ADJ */
-	700, /* PREVIOUS_APP_ADJ */
-	600, /* HOME_APP_ADJ */
-	500, /* SERVICE_ADJ */
-	400, /* HEAVY_WEIGHT_APP_ADJ */
-	300, /* BACKUP_APP_ADJ */
-	250, /* PERCEPTIBLE_LOW_APP_ADJ */
-	200, /* PERCEPTIBLE_APP_ADJ */
-	100, /* VISIBLE_APP_ADJ */
-	50, /* PERCEPTIBLE_RECENT_FOREGROUND_APP_ADJ */
-	0 /* FOREGROUND_APP_ADJ */
-};
-
 static struct victim_info victims[MAX_VICTIMS] __cacheline_aligned_in_smp;
+static struct task_struct *task_bucket[SHRT_MAX + 1] __cacheline_aligned;
 static DECLARE_WAIT_QUEUE_HEAD(oom_waitq);
 static DECLARE_COMPLETION(reclaim_done);
 static  __cacheline_aligned_in_smp DEFINE_RWLOCK(mm_free_lock);
@@ -71,14 +54,6 @@ static int victim_cmp(const void *lhs_ptr, const void *rhs_ptr)
 }
 
 static void victim_swap(void *lhs_ptr, void *rhs_ptr, int size)
-{
-	struct victim_info *lhs = (typeof(lhs))lhs_ptr;
-	struct victim_info *rhs = (typeof(rhs))rhs_ptr;
-
-	swap(*lhs, *rhs);
-}
-
-static bool vtsk_is_duplicate(int vlen, struct task_struct *vtsk)
 {
 	struct victim_info *lhs = (typeof(lhs))lhs_ptr;
 	struct victim_info *rhs = (typeof(rhs))rhs_ptr;
@@ -178,6 +153,17 @@ static unsigned long find_victims(int *vindex)
 		sort(&victims[old_vindex], *vindex - old_vindex,
 		     sizeof(*victims), victim_cmp, victim_swap);
 
+		/* Stop when we are out of space or have enough pages found */
+		if (*vindex == MAX_VICTIMS || pages_found >= MIN_FREE_PAGES) {
+			/* Zero out any remaining buckets we didn't touch */
+			if (i > min_adj)
+				memset(&task_bucket[min_adj], 0,
+				       (i - min_adj) * sizeof(*task_bucket));
+			break;
+		}
+	}
+	rcu_read_unlock();
+
 	return pages_found;
 }
 
@@ -211,17 +197,9 @@ static void scan_and_kill(void)
 	int i, nr_to_kill, nr_found = 0;
 	unsigned long pages_found;
 
-	/* Hold an RCU read lock while traversing the global process list */
-	rcu_read_lock();
-	for (i = 1; i < ARRAY_SIZE(adjs); i++) {
-		pages_found += find_victims(&nr_found, adjs[i], adjs[i - 1]);
-		if (pages_found >= MIN_FREE_PAGES || nr_found == MAX_VICTIMS)
-			break;
-	}
-	rcu_read_unlock();
-
-	/* Pretty unlikely but it can happen */
-	if (unlikely(!nr_found)) {
+	/* Populate the victims array with tasks sorted by adj and then size */
+	pages_found = find_victims(&nr_found);
+	if (unlikely(!pages_found)) {
 		pr_err("No processes available to kill!\n");
 		return;
 	}
