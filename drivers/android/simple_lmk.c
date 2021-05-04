@@ -45,11 +45,6 @@ static int nr_victims;
 static atomic_t needs_reclaim = ATOMIC_INIT(0);
 static atomic_t nr_killed = ATOMIC_INIT(0);
 
-#define ADJ_MAX 1000
-#define ADJ_DIVISOR 50
-static int lmk_count[(ADJ_MAX / ADJ_DIVISOR) + 1];
-module_param_array(lmk_count, int, NULL, S_IRUGO);
-
 static int victim_cmp(const void *lhs_ptr, const void *rhs_ptr)
 {
 	const struct victim_info *lhs = (typeof(lhs))lhs_ptr;
@@ -156,18 +151,7 @@ static unsigned long find_victims(int *vindex)
 		 * killing the larger ones first.
 		 */
 		sort(&victims[old_vindex], *vindex - old_vindex,
-		     sizeof(*victims), victim_cmp, victim_swap);
-
-		/* Stop when we are out of space or have enough pages found */
-		if (*vindex == MAX_VICTIMS || pages_found >= MIN_FREE_PAGES) {
-			/* Zero out any remaining buckets we didn't touch */
-			if (i > min_adj)
-				memset(&task_bucket[min_adj], 0,
-				       (i - min_adj) * sizeof(*task_bucket));
-			break;
-		}
-	}
-	rcu_read_unlock();
+		     sizeof(*victims), victim_cmp, NULL);
 
 	return pages_found;
 }
@@ -217,18 +201,25 @@ static void scan_and_kill(void)
 		return;
 	}
 
-	/* First round of victim processing to weed out unneeded victims */
-	nr_to_kill = process_victims(nr_found);
+	/* Minimize the number of victims if we found more pages than needed */
+	if (pages_found > MIN_FREE_PAGES) {
+		/* First round of processing to weed out unneeded victims */
+		nr_to_kill = process_victims(nr_found);
 
-	/*
-	 * Try to kill as few of the chosen victims as possible by sorting the
-	 * chosen victims by size, which means larger victims that have a lower
-	 * adj can be killed in place of smaller victims with a high adj.
-	 */
-	sort(victims, nr_to_kill, sizeof(*victims), victim_size_cmp, NULL);
+		/*
+		 * Try to kill as few of the chosen victims as possible by
+		 * sorting the chosen victims by size, which means larger
+		 * victims that have a lower adj can be killed in place of
+		 * smaller victims with a high adj.
+		 */
+		sort(victims, nr_to_kill, sizeof(*victims), victim_cmp, NULL);
 
-	/* Second round of victim processing to finally select the victims */
-	nr_to_kill = process_victims(nr_to_kill);
+		/* Second round of processing to finally select the victims */
+		nr_to_kill = process_victims(nr_to_kill);
+	} else {
+		/* Too few pages found, so all the victims need to be killed */
+		nr_to_kill = nr_found;
+	}
 
 	/* Store the final number of victims for simple_lmk_mm_freed() */
 	write_lock(&mm_free_lock);
