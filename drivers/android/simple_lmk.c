@@ -206,7 +206,7 @@ static void scan_and_kill(void)
 	rcu_read_lock();
 	for (i = 1; i < ARRAY_SIZE(adjs); i++) {
 		pages_found += find_victims(&nr_found, adjs[i], adjs[i - 1]);
-		if (pages_found >= pages_needed || nr_found == MAX_VICTIMS)
+		if (pages_found >= MIN_FREE_PAGES || nr_found == MAX_VICTIMS)
 			break;
 	}
 	rcu_read_unlock();
@@ -217,26 +217,18 @@ static void scan_and_kill(void)
 		return;
 	}
 
-	/* Minimize the number of victims if we found more pages than needed */
-	if (pages_found > MIN_FREE_PAGES) {
-		/* First round of processing to weed out unneeded victims */
-		nr_to_kill = process_victims(nr_found);
+	/* First round of victim processing to weed out unneeded victims */
+	nr_to_kill = process_victims(nr_found);
 
-		/*
-		 * Try to kill as few of the chosen victims as possible by
-		 * sorting the chosen victims by size, which means larger
-		 * victims that have a lower adj can be killed in place of
-		 * smaller victims with a high adj.
-		 */
-		sort(victims, nr_to_kill, sizeof(*victims), victim_cmp,
-		     victim_swap);
+	/*
+	 * Try to kill as few of the chosen victims as possible by sorting the
+	 * chosen victims by size, which means larger victims that have a lower
+	 * adj can be killed in place of smaller victims with a high adj.
+	 */
+	sort(victims, nr_to_kill, sizeof(*victims), victim_size_cmp, NULL);
 
-		/* Second round of processing to finally select the victims */
-		nr_to_kill = process_victims(nr_to_kill);
-	} else {
-		/* Too few pages found, so all the victims need to be killed */
-		nr_to_kill = nr_found;
-	}
+	/* Second round of victim processing to finally select the victims */
+	nr_to_kill = process_victims(nr_to_kill);
 
 	/* Store the final number of victims for simple_lmk_mm_freed() */
 	write_lock(&mm_free_lock);
@@ -304,7 +296,7 @@ static int simple_lmk_reclaim_thread(void *data)
 	set_freezable();
 
 	while (1) {
-		wait_event_freezable(oom_waitq, atomic_read(&needs_reclaim));
+		wait_event(oom_waitq, atomic_read(&needs_reclaim));
 		scan_and_kill();
 		atomic_set_release(&needs_reclaim, 0);
 	}
