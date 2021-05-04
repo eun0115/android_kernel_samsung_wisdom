@@ -202,8 +202,16 @@ static void scan_and_kill(void)
 	int i, nr_to_kill, nr_found = 0;
 	unsigned long pages_found;
 
-	/* Populate the victims array with tasks sorted by adj and then size */
-	pages_found = find_victims(&nr_found);
+	/* Hold an RCU read lock while traversing the global process list */
+	rcu_read_lock();
+	for (i = 1; i < ARRAY_SIZE(adjs); i++) {
+		pages_found += find_victims(&nr_found, adjs[i], adjs[i - 1]);
+		if (pages_found >= pages_needed || nr_found == MAX_VICTIMS)
+			break;
+	}
+	rcu_read_unlock();
+
+	/* Pretty unlikely but it can happen */
 	if (unlikely(!nr_found)) {
 		pr_err("No processes available to kill!\n");
 		return;
