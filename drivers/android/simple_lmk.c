@@ -243,8 +243,8 @@ static void scan_and_kill(void)
 			vtsk->signal->oom_score_adj,
 			victim->size << (PAGE_SHIFT - 10));
 
-		cpu_input_boost_kick_max(500);
-		devfreq_boost_kick_max(DEVFREQ_EXYNOS_MIF,500);
+		cpu_input_boost_kick_max(300);
+		devfreq_boost_kick_max(DEVFREQ_EXYNOS_MIF,300);
 
 		/* Accelerate the victim's death by forcing the kill signal */
 		do_send_sig_info(SIGKILL, SEND_SIG_FORCED, vtsk, true);
@@ -252,7 +252,7 @@ static void scan_and_kill(void)
 		/* Mark the thread group dead so that other kernel code knows */
 		rcu_read_lock();
 		for_each_thread(vtsk, t)
-			set_tsk_thread_flag(t, TIF_MEMDIE);
+		set_tsk_thread_flag(t, TIF_MEMDIE);
 		rcu_read_unlock();
 
 		/* Elevate the victim to SCHED_RR with zero RT priority */
