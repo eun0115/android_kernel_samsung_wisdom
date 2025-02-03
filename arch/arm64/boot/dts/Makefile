@@ -2,10 +2,5 @@
 dtb-y += exynos/dtbo/exynos7885.dtb
 dtbo-y += exynos/dtbo/exynos7904-wisdom_sea_open_03.dtbo
 
-targets += dtbs
-DTB_LIST  := $(dtb-y) $(dtbo-y)
-always    := $(DTB_LIST)
-
-dtbs: $(addprefix $(obj)/, $(DTB_LIST))
-
-clean-files := *.dtb*
+always         := $(dtb-y) $(dtbo-y)
+clean-files    := *.dtb *.dtbo
