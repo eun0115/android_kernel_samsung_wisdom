@@ -17,7 +17,6 @@ TFA98XX_FLAGS           := -DUSE_TFA9896
 #ccflags-y               := -DDEBUG
 #ccflags-y               += -I$(TFA_SRC_DIR)/inc
 ccflags-y               := -I$(TFA_SRC_DIR)/inc
-ccflags-y               += -Werror
 #ifdef TFADSP_32BITS
 #ccflags-y               += -DTFADSP_32BITS
 #endif
